@@ -14,8 +14,6 @@
 // limitations under the License.
 //
 
-#include <grpc/support/port_platform.h>
-
 #include "src/core/ext/transport/chttp2/transport/chttp2_transport.h"
 
 #include <inttypes.h>
@@ -54,6 +52,7 @@
 #include <grpc/status.h>
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
+#include <grpc/support/port_platform.h>
 #include <grpc/support/time.h>
 
 #include "src/core/ext/transport/chttp2/transport/context_list_entry.h"
@@ -143,8 +142,6 @@ static bool g_default_server_keepalive_permit_without_calls = false;
 
 #define MAX_CLIENT_STREAM_ID 0x7fffffffu
 grpc_core::TraceFlag grpc_keepalive_trace(false, "http_keepalive");
-grpc_core::DebugOnlyTraceFlag grpc_trace_chttp2_refcount(false,
-                                                         "chttp2_refcount");
 
 // forward declarations of various callbacks that we'll build closures around
 static void write_action_begin_locked(
@@ -595,12 +592,7 @@ static void init_keepalive_pings_if_enabled_locked(
 grpc_chttp2_transport::grpc_chttp2_transport(
     const grpc_core::ChannelArgs& channel_args, grpc_endpoint* ep,
     bool is_client)
-    : grpc_core::RefCounted<grpc_chttp2_transport,
-                            grpc_core::NonPolymorphicRefCount>(
-          GRPC_TRACE_FLAG_ENABLED(grpc_trace_chttp2_refcount)
-              ? "chttp2_refcount"
-              : nullptr),
-      ep(ep),
+    : ep(ep),
       peer_string(
           grpc_core::Slice::FromCopiedString(grpc_endpoint_get_peer(ep))),
       memory_owner(channel_args.GetObject<grpc_core::ResourceQuota>()
@@ -1471,9 +1463,11 @@ static void perform_stream_op_locked(void* stream_op,
       frame_hdr[3] = static_cast<uint8_t>(len >> 8);
       frame_hdr[4] = static_cast<uint8_t>(len);
 
-      s->stats.outgoing.framing_bytes += GRPC_HEADER_SIZE_IN_BYTES;
-      s->stats.outgoing.data_bytes +=
-          op_payload->send_message.send_message->Length();
+      if (grpc_core::IsHttp2StatsFixEnabled()) {
+        s->stats.outgoing.framing_bytes += GRPC_HEADER_SIZE_IN_BYTES;
+        s->stats.outgoing.data_bytes +=
+            op_payload->send_message.send_message->Length();
+      }
       s->next_message_end_offset =
           s->flow_controlled_bytes_written +
           static_cast<int64_t>(s->flow_controlled_buffer.length) +

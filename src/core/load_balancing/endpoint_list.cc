@@ -14,8 +14,6 @@
 // limitations under the License.
 //
 
-#include <grpc/support/port_platform.h>
-
 #include "src/core/load_balancing/endpoint_list.h"
 
 #include <stdlib.h>
@@ -31,8 +29,8 @@
 #include <grpc/impl/connectivity_state.h>
 #include <grpc/support/json.h>
 #include <grpc/support/log.h>
+#include <grpc/support/port_platform.h>
 
-#include "src/core/load_balancing/pick_first/pick_first.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/config/core_configuration.h"
 #include "src/core/lib/gprpp/debug_location.h"
@@ -43,6 +41,7 @@
 #include "src/core/load_balancing/delegating_helper.h"
 #include "src/core/load_balancing/lb_policy.h"
 #include "src/core/load_balancing/lb_policy_registry.h"
+#include "src/core/load_balancing/pick_first/pick_first.h"
 #include "src/core/resolver/endpoint_addresses.h"
 
 namespace grpc_core {
@@ -88,7 +87,7 @@ class EndpointList::Endpoint::Helper final
 // EndpointList::Endpoint
 //
 
-void EndpointList::Endpoint::Init(
+absl::Status EndpointList::Endpoint::Init(
     const EndpointAddresses& addresses, const ChannelArgs& args,
     std::shared_ptr<WorkSerializer> work_serializer) {
   ChannelArgs child_args =
@@ -124,9 +123,7 @@ void EndpointList::Endpoint::Init(
   update_args.addresses = std::make_shared<SingleEndpointIterator>(addresses);
   update_args.args = child_args;
   update_args.config = std::move(*config);
-  // TODO(roth): If the child reports a non-OK status with the update,
-  // we need to propagate that back to the resolver somehow.
-  (void)child_policy_->UpdateLocked(std::move(update_args));
+  return child_policy_->UpdateLocked(std::move(update_args));
 }
 
 void EndpointList::Endpoint::Orphan() {

@@ -22,6 +22,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -116,6 +117,15 @@ std::string XdsClusterResource::ToString() const {
       absl::StrCat("max_concurrent_requests=", max_concurrent_requests));
   contents.push_back(absl::StrCat("override_host_statuses=",
                                   override_host_statuses.ToString()));
+  if (!service_telemetry_label.as_string_view().empty()) {
+    contents.push_back(absl::StrCat("service_name_telemetry_label=",
+                                    service_telemetry_label.as_string_view()));
+  }
+  if (!namespace_telemetry_label.as_string_view().empty()) {
+    contents.push_back(
+        absl::StrCat("service_namespace_telemetry_label=",
+                     namespace_telemetry_label.as_string_view()));
+  }
   return absl::StrCat("{", absl::StrJoin(contents, ", "), "}");
 }
 
@@ -467,7 +477,7 @@ absl::StatusOr<std::shared_ptr<const XdsClusterResource>> CdsResourceParse(
     ValidationErrors::ScopedField field(&errors, ".cluster_type");
     const auto* custom_cluster_type =
         envoy_config_cluster_v3_Cluster_cluster_type(cluster);
-    GPR_ASSERT(custom_cluster_type != nullptr);
+    CHECK_NE(custom_cluster_type, nullptr);
     ValidationErrors::ScopedField field2(&errors, ".typed_config");
     const auto* typed_config =
         envoy_config_cluster_v3_Cluster_CustomClusterType_typed_config(

@@ -20,8 +20,6 @@
 // to use. A child policy that recognizes the name as a field of its
 // configuration will take further load balancing action on the request.
 
-#include <grpc/support/port_platform.h>
-
 #include "src/core/load_balancing/rls/rls.h"
 
 #include <inttypes.h>
@@ -65,11 +63,12 @@
 #include <grpc/status.h>
 #include <grpc/support/json.h>
 #include <grpc/support/log.h>
+#include <grpc/support/port_platform.h>
 
+#include "src/core/channelz/channelz.h"
 #include "src/core/client_channel/client_channel_filter.h"
 #include "src/core/lib/backoff/backoff.h"
 #include "src/core/lib/channel/channel_args.h"
-#include "src/core/lib/channel/channelz.h"
 #include "src/core/lib/channel/metrics.h"
 #include "src/core/lib/config/core_configuration.h"
 #include "src/core/lib/debug/trace.h"
@@ -1861,9 +1860,16 @@ void RlsLb::RlsRequest::OnRlsCallCompleteLocked(grpc_error_handle error) {
   // Now that we've released the lock, finish the update on any newly
   // created child policies.
   for (ChildPolicyWrapper* child : child_policies_to_finish_update) {
-    // TODO(roth): If the child reports an error with the update, we
-    // need to propagate that back to the resolver somehow.
-    (void)child->MaybeFinishUpdate();
+    // If the child policy returns a non-OK status, request re-resolution.
+    // Note that this will initially cause fixed backoff delay in the
+    // resolver instead of exponential delay.  However, once the
+    // resolver returns the initial re-resolution, we will be able to
+    // return non-OK from UpdateLocked(), which will trigger
+    // exponential backoff instead.
+    absl::Status status = child->MaybeFinishUpdate();
+    if (!status.ok()) {
+      lb_policy_->channel_control_helper()->RequestReresolution();
+    }
   }
 }
 

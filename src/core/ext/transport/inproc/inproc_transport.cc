@@ -27,15 +27,15 @@
 #include "src/core/lib/promise/promise.h"
 #include "src/core/lib/promise/try_seq.h"
 #include "src/core/lib/surface/channel_create.h"
-#include "src/core/lib/surface/server.h"
 #include "src/core/lib/transport/transport.h"
+#include "src/core/server/server.h"
 
 namespace grpc_core {
 
 namespace {
-class InprocServerTransport final : public RefCounted<InprocServerTransport>,
-                                    public Transport,
-                                    public ServerTransport {
+class InprocClientTransport;
+
+class InprocServerTransport final : public ServerTransport {
  public:
   void SetAcceptor(Acceptor* acceptor) override {
     acceptor_ = acceptor;
@@ -83,7 +83,7 @@ class InprocServerTransport final : public RefCounted<InprocServerTransport>,
                             "inproc transport disconnected");
   }
 
-  absl::StatusOr<CallInitiator> AcceptCall(ClientMetadata& md) {
+  absl::StatusOr<CallInitiator> AcceptCall(ClientMetadataHandle md) {
     switch (state_.load(std::memory_order_acquire)) {
       case ConnectionState::kInitial:
         return absl::InternalError(
@@ -93,8 +93,10 @@ class InprocServerTransport final : public RefCounted<InprocServerTransport>,
       case ConnectionState::kReady:
         break;
     }
-    return acceptor_->CreateCall(md, acceptor_->CreateArena());
+    return acceptor_->CreateCall(std::move(md), acceptor_->CreateArena());
   }
+
+  OrphanablePtr<InprocClientTransport> MakeClientTransport();
 
  private:
   enum class ConnectionState : uint8_t { kInitial, kReady, kDisconnected };
@@ -108,27 +110,27 @@ class InprocServerTransport final : public RefCounted<InprocServerTransport>,
       "inproc_server_transport", GRPC_CHANNEL_CONNECTING};
 };
 
-class InprocClientTransport final : public Transport, public ClientTransport {
+class InprocClientTransport final : public ClientTransport {
  public:
+  explicit InprocClientTransport(
+      RefCountedPtr<InprocServerTransport> server_transport)
+      : server_transport_(std::move(server_transport)) {}
+
   void StartCall(CallHandler call_handler) override {
     call_handler.SpawnGuarded(
         "pull_initial_metadata",
         TrySeq(call_handler.PullClientInitialMetadata(),
                [server_transport = server_transport_,
                 call_handler](ClientMetadataHandle md) {
-                 auto call_initiator = server_transport->AcceptCall(*md);
+                 auto call_initiator =
+                     server_transport->AcceptCall(std::move(md));
                  if (!call_initiator.ok()) return call_initiator.status();
-                 ForwardCall(call_handler, std::move(*call_initiator),
-                             std::move(md));
+                 ForwardCall(call_handler, std::move(*call_initiator));
                  return absl::OkStatus();
                }));
   }
 
   void Orphan() override { delete this; }
-
-  OrphanablePtr<Transport> GetServerTransport() {
-    return OrphanablePtr<Transport>(server_transport_->Ref().release());
-  }
 
   FilterStackTransport* filter_stack_transport() override { return nullptr; }
   ClientTransport* client_transport() override { return this; }
@@ -145,8 +147,7 @@ class InprocClientTransport final : public Transport, public ClientTransport {
         absl::UnavailableError("Client transport closed"));
   }
 
-  RefCountedPtr<InprocServerTransport> server_transport_ =
-      MakeRefCounted<InprocServerTransport>();
+  const RefCountedPtr<InprocServerTransport> server_transport_;
 };
 
 bool UsePromiseBasedTransport() {
@@ -154,6 +155,12 @@ bool UsePromiseBasedTransport() {
   GPR_ASSERT(IsPromiseBasedClientCallEnabled());
   GPR_ASSERT(IsPromiseBasedServerCallEnabled());
   return true;
+}
+
+OrphanablePtr<InprocClientTransport>
+InprocServerTransport::MakeClientTransport() {
+  return MakeOrphanable<InprocClientTransport>(
+      RefAsSubclass<InprocServerTransport>());
 }
 
 OrphanablePtr<Channel> MakeLameChannel(absl::string_view why,
@@ -197,8 +204,8 @@ OrphanablePtr<Channel> MakeInprocChannel(Server* server,
 
 std::pair<OrphanablePtr<Transport>, OrphanablePtr<Transport>>
 MakeInProcessTransportPair() {
-  auto client_transport = MakeOrphanable<InprocClientTransport>();
-  auto server_transport = client_transport->GetServerTransport();
+  auto server_transport = MakeOrphanable<InprocServerTransport>();
+  auto client_transport = server_transport->MakeClientTransport();
   return std::make_pair(std::move(client_transport),
                         std::move(server_transport));
 }

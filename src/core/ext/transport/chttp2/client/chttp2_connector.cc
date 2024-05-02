@@ -38,15 +38,18 @@
 #include <grpc/support/port_platform.h>
 #include <grpc/support/sync.h>
 
+#include "src/core/channelz/channelz.h"
 #include "src/core/client_channel/client_channel_factory.h"
 #include "src/core/client_channel/client_channel_filter.h"
 #include "src/core/client_channel/connector.h"
 #include "src/core/client_channel/subchannel.h"
 #include "src/core/ext/transport/chttp2/transport/chttp2_transport.h"
+#include "src/core/handshaker/handshaker.h"
+#include "src/core/handshaker/handshaker_registry.h"
+#include "src/core/handshaker/tcp_connect/tcp_connect_handshaker.h"
 #include "src/core/lib/address_utils/sockaddr_utils.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/channel/channel_args_preconditioning.h"
-#include "src/core/lib/channel/channelz.h"
 #include "src/core/lib/config/core_configuration.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/event_engine/channel_args_endpoint_config.h"
@@ -66,9 +69,6 @@
 #include "src/core/lib/surface/channel_create.h"
 #include "src/core/lib/surface/channel_stack_type.h"
 #include "src/core/lib/transport/error_utils.h"
-#include "src/core/lib/transport/handshaker.h"
-#include "src/core/lib/transport/handshaker_registry.h"
-#include "src/core/lib/transport/tcp_connect_handshaker.h"
 #include "src/core/lib/transport/transport.h"
 #include "src/core/resolver/resolver_registry.h"
 
